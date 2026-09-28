@@ -19,17 +19,13 @@ ______________________________________________________________________
 
 <div align="center">
 
-### [**⬇ DOWNLOAD EVERYTHING (ZIP)**](https://github.com/alvinlam100-glitch/tidal-download-local-usb-mp3-sync/archive/refs/heads/master.zip)
-
-One file, one click. It contains every script this tool needs
-(`setup`, `sync_all`, `fix_track`, and the rest) plus this README, already
-organized in one folder. No separate downloads, no picking individual
-files.
+### [**Download**](https://github.com/alvinlam100-glitch/tidal-download-local-usb-mp3-sync/archive/refs/heads/master.zip)
 
 </div>
 
-The link above saves a `.zip` file to the Downloads folder. Extract it
-anywhere, then continue at [Installation](#installation) below.
+The link above downloads a single `.zip` file containing all required
+files: every script, the setup and sync entry points, and this README.
+Extract it, then continue at [Installation](#installation).
 
 ______________________________________________________________________
 
