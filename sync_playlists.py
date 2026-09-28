@@ -355,7 +355,9 @@ def clean_freshly_downloaded_files(playlist_root: Path, index: dict, dry_run: bo
     return renamed
 
 
-def reorganize_playlist_files(url_file: Path, playlist_root: Path, name: str, dry_run: bool = False) -> None:
+def reorganize_playlist_files(
+    url_file: Path, playlist_root: Path, name: str, dry_run: bool = False, confirmed_empty: bool = False,
+) -> None:
     """Deletes any file whose track is no longer in
     resolved/<playlist>.txt (i.e. a song removed from that Tidal
     playlist), and renames freshly-downloaded files to a clean
@@ -386,8 +388,11 @@ def reorganize_playlist_files(url_file: Path, playlist_root: Path, name: str, dr
     # Tidal read) could make a playlist look like it lost most of its
     # tracks even though nothing was actually removed on Tidal. Refuse to
     # mass-delete in that case rather than trust the numbers blindly - a
-    # genuine mass removal can still be done by hand.
-    breaker_tripped = len(index) >= 5 and len(removed_ids) > len(index) * 0.5
+    # genuine mass removal can still be done by hand. Skipped when the
+    # caller has already confirmed (via tidal_resolve.py's track-count
+    # marker) that the Tidal playlist really does have zero tracks - the
+    # ambiguity this breaker exists for isn't present in that case.
+    breaker_tripped = not confirmed_empty and len(index) >= 5 and len(removed_ids) > len(index) * 0.5
     if breaker_tripped:
         log(f"  WARNING: '{name}' would lose {len(removed_ids)}/{len(index)} track(s) this run - "
             f"that's unusually large, so nothing was deleted in case this is caused by a "
@@ -575,6 +580,7 @@ def _run() -> None:
             for line in resolved_text.splitlines()
         )
         playlist_root = staging_path / safe_filename(name)
+        confirmed_empty = False
         if has_urls:
             if sync_playlist(url_file, name, playlist_root, audio_format, dry_run=dry_run):
                 successes += 1
@@ -591,12 +597,13 @@ def _run() -> None:
             tidal_count = tidal_track_count_marker(resolved_text)
             if tidal_count == 0:
                 successes += 1
+                confirmed_empty = True
             else:
                 log(f"SKIPPING '{name}': resolved to zero tracks, but the Tidal playlist isn't "
                     f"confirmed empty - leaving existing files untouched rather than risk "
                     f"deleting tracks that just failed to resolve. Check the resolve output.")
                 continue
-        reorganize_playlist_files(url_file, playlist_root, name, dry_run=dry_run)
+        reorganize_playlist_files(url_file, playlist_root, name, dry_run=dry_run, confirmed_empty=confirmed_empty)
 
     log(f"Download step done: {successes}/{len(playlists)} playlists synced.")
 

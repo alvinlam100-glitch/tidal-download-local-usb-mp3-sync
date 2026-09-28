@@ -262,7 +262,11 @@ def main() -> None:
         resolved_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     else:
         RESOLVED_DIR.mkdir(exist_ok=True)
-        resolved_file.write_text(new_url + "\n", encoding="utf-8")
+        # Same "# tidal_track_count: N" marker tidal_resolve.py writes -
+        # sync_playlists.py relies on it being present and correct to tell
+        # a genuinely empty Tidal playlist apart from one where every
+        # track just failed to resolve.
+        resolved_file.write_text(f"# tidal_track_count: {len(tracks)}\n{new_url}\n", encoding="utf-8")
         print(f"Created {resolved_file.name}.")
 
     print("\nDone. Run sync_all.bat / sync_all.sh next to download the corrected")
