@@ -124,6 +124,27 @@ so subsequent runs do not require re-authentication until the token
 expires. YouTube Music searches are anonymous and require no Google
 account.
 
+To preview what a run would do without changing anything, add `--dry-run`
+(`python sync_playlists.py --dry-run`): it reports what would be
+downloaded, deleted, or mirrored, using yt-dlp's, robocopy's, and rsync's
+own no-op modes, so nothing on disk or on the mirror target is touched.
+
+### Running on a schedule
+
+Both scripts refuse to start a second run while one is already in progress
+(a lock file, removed automatically when the run finishes), so an
+overlapping scheduled run won't corrupt anything. If the machine is shut
+down or put to sleep mid-run, the interrupted run's lock file is left
+behind; delete it before the next run (the script's error message names
+its exact path). Any files that were only partially downloaded are safe
+to leave - the next run detects and re-downloads them automatically.
+
+Task Scheduler (Windows) and cron (Mac/Linux) triggers normally fire on
+the machine's local wall-clock time, not the script itself, so a timezone
+change or DST shift can move *when* a scheduled run fires relative to
+what you originally set up, but it has no effect on the sync logic or
+data safety.
+
 ## Features
 
 - **New tracks** added to a Tidal playlist are picked up automatically on

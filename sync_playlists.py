@@ -55,6 +55,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = SCRIPT_DIR / "playlists.json"
 RESOLVED_DIR = SCRIPT_DIR / "resolved"
 LOG_FILE = SCRIPT_DIR / "sync_log.txt"
+LOCK_FILE = SCRIPT_DIR / ".sync.lock"
 
 
 def log(message: str) -> None:
@@ -90,12 +91,23 @@ def check_ytdlp_installed() -> None:
         sys.exit(1)
 
 
+# Windows reserves these names for device files, regardless of extension
+# (e.g. "CON.mp3" is just as invalid as "CON") - a playlist or track name
+# that happens to be one of these would otherwise fail to create at all.
+_WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
 def safe_filename(name: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*]', "_", str(name or "")).strip()
-    if cleaned in ("", ".", ".."):
-        # A bare "." or ".." would make playlist_root resolve to the
-        # staging folder itself or its parent - the delete/mirror logic
-        # would then act on the wrong directory entirely.
+    # Windows also silently strips trailing dots/spaces from a filename,
+    # so "Song..." and "Song" can otherwise collide on disk without
+    # looking like they would.
+    cleaned = cleaned.rstrip(". ")
+    if cleaned in ("", ".", "..") or cleaned.upper().split(".")[0] in _WINDOWS_RESERVED_NAMES:
         return "unnamed"
     return cleaned
 
@@ -184,6 +196,18 @@ def sync_playlist(url_file: Path, name: str, root_path: Path, audio_format: str,
     return True
 
 
+def atomic_write_text(path: Path, content: str) -> None:
+    # Temp file + os.replace() (atomic on both Windows and POSIX), with a
+    # PID-suffixed name so two concurrent runs can't clobber each other's
+    # in-progress write, and cleanup even if os.replace() itself fails.
+    tmp_file = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp_file.write_text(content, encoding="utf-8")
+        os.replace(tmp_file, path)
+    finally:
+        tmp_file.unlink(missing_ok=True)
+
+
 def load_track_index(playlist_root: Path) -> dict:
     idx_file = playlist_root / INDEX_FILENAME
     if idx_file.exists():
@@ -202,17 +226,10 @@ def load_track_index(playlist_root: Path) -> dict:
 
 
 def save_track_index(playlist_root: Path, index: dict) -> None:
-    # Atomic write (temp file + os.replace) so an interruption mid-write can't
-    # leave this file truncated - it's rewritten on every sync. PID in the
-    # temp name avoids two concurrent runs clobbering each other's write;
-    # finally cleans up the temp file even if os.replace() itself fails.
-    idx_file = playlist_root / INDEX_FILENAME
-    tmp_file = idx_file.with_suffix(f".json.{os.getpid()}.tmp")
-    try:
-        tmp_file.write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp_file, idx_file)
-    finally:
-        tmp_file.unlink(missing_ok=True)
+    atomic_write_text(
+        playlist_root / INDEX_FILENAME,
+        json.dumps(index, indent=2, ensure_ascii=False),
+    )
 
 
 def clean_freshly_downloaded_files(playlist_root: Path, index: dict, dry_run: bool = False) -> int:
@@ -376,7 +393,7 @@ def reorganize_playlist_files(url_file: Path, playlist_root: Path, name: str, dr
                     if len(parts) == 2 and parts[1] in removed_ids:
                         continue  # this line's video ID was just removed, drop it
                     kept.append(line)
-                archive_file.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+                atomic_write_text(archive_file, "\n".join(kept) + ("\n" if kept else ""))
 
     if not dry_run:
         save_track_index(playlist_root, index)
@@ -436,6 +453,25 @@ def mirror_to_usb(staging_path: Path, usb_path: Path, dry_run: bool = False) -> 
 
 
 def main() -> None:
+    # A second run started while one is already in progress would load the
+    # same resolve_cache.json/.track_index.json, make its own changes, and
+    # overwrite the other's - the atomic writes prevent file corruption but
+    # not this kind of lost update. A plain lock file is enough for a
+    # personal single-user tool; if a previous run crashed without cleaning
+    # up, delete the lock file and try again.
+    if LOCK_FILE.exists():
+        log(f"ERROR: {LOCK_FILE.name} already exists - another sync may already be "
+            f"running. If a previous run crashed without cleaning up, delete "
+            f"{LOCK_FILE} and try again.")
+        sys.exit(1)
+    LOCK_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        _run()
+    finally:
+        LOCK_FILE.unlink(missing_ok=True)
+
+
+def _run() -> None:
     dry_run = "--dry-run" in sys.argv[1:]
     check_ytdlp_installed()
     config = load_config()
@@ -457,6 +493,23 @@ def main() -> None:
     if not playlists:
         log("No playlists configured in playlists.json. Nothing to do.")
         return
+
+    # Two differently-named playlists can sanitize to the same folder/file
+    # name (e.g. "A/B" and "A:B" both become "A_B") - letting that through
+    # would mean they silently share a resolved-tracks file and a download
+    # folder, so one's sync can act on the other's tracks.
+    seen_names: dict[str, str] = {}
+    for playlist in playlists:
+        raw_name = str(playlist.get("name") or playlist.get("tidal_name") or "").strip()
+        if not raw_name:
+            continue
+        sanitized = safe_filename(raw_name)
+        if sanitized in seen_names and seen_names[sanitized] != raw_name:
+            log(f"ERROR: playlist names '{seen_names[sanitized]}' and '{raw_name}' both "
+                f"sanitize to '{sanitized}' and would share a folder. Rename one in "
+                f"{CONFIG_FILE.name}.")
+            sys.exit(1)
+        seen_names[sanitized] = raw_name
 
     if not dry_run:
         staging_path.mkdir(parents=True, exist_ok=True)

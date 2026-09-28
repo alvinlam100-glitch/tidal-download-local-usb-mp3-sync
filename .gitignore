@@ -19,3 +19,8 @@ sync_log.txt
 # Python
 __pycache__/
 *.pyc
+
+# Lock files (prevent overlapping runs) and atomic-write temp files
+.sync.lock
+.resolve.lock
+*.tmp

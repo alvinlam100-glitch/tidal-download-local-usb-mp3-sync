@@ -76,6 +76,7 @@ CONFIG_FILE = SCRIPT_DIR / "playlists.json"
 TIDAL_TOKEN_FILE = SCRIPT_DIR / "tidal_token.json"
 RESOLVED_DIR = SCRIPT_DIR / "resolved"
 CACHE_FILE = SCRIPT_DIR / "resolve_cache.json"
+LOCK_FILE = SCRIPT_DIR / ".resolve.lock"
 
 # A candidate whose duration differs from Tidal's by more than this many
 # seconds is rejected outright - a wrong length almost always means a
@@ -443,6 +444,23 @@ def resolve_one_playlist(tidal_session, yt: "YTMusic", tidal_name: str, local_na
 
 
 def main() -> None:
+    # Same reasoning as sync_playlists.py's lock: a second run started while
+    # one is in progress would load the same resolve_cache.json, make its
+    # own changes, and overwrite the other's on save - the atomic write
+    # prevents corruption but not this kind of lost update.
+    if LOCK_FILE.exists():
+        print(f"ERROR: {LOCK_FILE.name} already exists - another resolve may already be "
+              f"running. If a previous run crashed without cleaning up, delete "
+              f"{LOCK_FILE} and try again.")
+        sys.exit(1)
+    LOCK_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        _run()
+    finally:
+        LOCK_FILE.unlink(missing_ok=True)
+
+
+def _run() -> None:
     config = load_config()
     playlists = config.get("playlists", [])
     if not isinstance(playlists, list) or not all(isinstance(p, dict) for p in playlists):
