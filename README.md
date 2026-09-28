@@ -138,8 +138,8 @@ account.
   YouTube channel-name artifacts.
 
 Matching is not guaranteed to be perfect. Duration and text scoring filter
-out most incorrect versions, but the "could not match" and "low-confidence
-match" output printed after each run should be reviewed.
+out most incorrect versions, but any unmatched or low-confidence tracks
+listed in the output after each run should be reviewed.
 
 ## Fixing a wrong or missing match
 
