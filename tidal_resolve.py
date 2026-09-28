@@ -97,20 +97,23 @@ def load_cache() -> dict:
     return {}
 
 
-def save_cache(cache: dict) -> None:
-    # Written to a temp file and swapped in with os.replace() (atomic on both
-    # Windows and POSIX) rather than writing the real file directly - this is
-    # called after every single track, so a crash/interruption mid-write could
-    # otherwise leave resolve_cache.json truncated and unreadable next run.
-    # The PID is in the temp name so two concurrent runs can't clobber each
-    # other's in-progress write; the finally block cleans it up even if
-    # os.replace() itself fails partway (e.g. the destination is locked).
-    tmp_file = CACHE_FILE.with_suffix(f".json.{os.getpid()}.tmp")
+def atomic_write_text(path: Path, content: str) -> None:
+    # Temp file + os.replace() (atomic on both Windows and POSIX), with a
+    # PID-suffixed name so two concurrent runs can't clobber each other's
+    # in-progress write, and cleanup even if os.replace() itself fails.
+    tmp_file = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        tmp_file.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp_file, CACHE_FILE)
+        tmp_file.write_text(content, encoding="utf-8")
+        os.replace(tmp_file, path)
     finally:
         tmp_file.unlink(missing_ok=True)
+
+
+def save_cache(cache: dict) -> None:
+    # resolve_cache.json is rewritten after every single track, so a
+    # crash/interruption mid-write could otherwise leave it truncated and
+    # unreadable next run.
+    atomic_write_text(CACHE_FILE, json.dumps(cache, indent=2, ensure_ascii=False))
 
 
 def cache_key(isrc: str | None, title: str, artist: str) -> str:
@@ -433,7 +436,7 @@ def resolve_one_playlist(tidal_session, yt: "YTMusic", tidal_name: str, local_na
 
     RESOLVED_DIR.mkdir(exist_ok=True)
     out_file = RESOLVED_DIR / f"{safe_filename(local_name)}.txt"
-    out_file.write_text("\n".join(resolved_urls) + "\n" if resolved_urls else "", encoding="utf-8")
+    atomic_write_text(out_file, "\n".join(resolved_urls) + "\n" if resolved_urls else "")
 
     print(f"  Matched {len(resolved_urls)}/{len(tidal_tracks)} tracks -> {out_file.name}")
 
@@ -448,12 +451,18 @@ def main() -> None:
     # one is in progress would load the same resolve_cache.json, make its
     # own changes, and overwrite the other's on save - the atomic write
     # prevents corruption but not this kind of lost update.
-    if LOCK_FILE.exists():
+    # "x" mode is an atomic create-if-not-exists - see sync_playlists.py's
+    # identical lock for why exists()+write_text() as two separate steps
+    # isn't safe.
+    try:
+        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
         print(f"ERROR: {LOCK_FILE.name} already exists - another resolve may already be "
               f"running. If a previous run crashed without cleaning up, delete "
               f"{LOCK_FILE} and try again.")
         sys.exit(1)
-    LOCK_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    os.write(fd, str(os.getpid()).encode("utf-8"))
+    os.close(fd)
     try:
         _run()
     finally:

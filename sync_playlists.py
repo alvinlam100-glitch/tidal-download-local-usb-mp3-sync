@@ -459,12 +459,19 @@ def main() -> None:
     # not this kind of lost update. A plain lock file is enough for a
     # personal single-user tool; if a previous run crashed without cleaning
     # up, delete the lock file and try again.
-    if LOCK_FILE.exists():
+    # "x" mode is an atomic create-if-not-exists (fails with FileExistsError
+    # if the file is already there) - checking existence and creating it as
+    # two separate steps would leave a gap where two processes started at
+    # nearly the same time could both believe they got the lock.
+    try:
+        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
         log(f"ERROR: {LOCK_FILE.name} already exists - another sync may already be "
             f"running. If a previous run crashed without cleaning up, delete "
             f"{LOCK_FILE} and try again.")
         sys.exit(1)
-    LOCK_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    os.write(fd, str(os.getpid()).encode("utf-8"))
+    os.close(fd)
     try:
         _run()
     finally:
@@ -503,13 +510,16 @@ def _run() -> None:
         raw_name = str(playlist.get("name") or playlist.get("tidal_name") or "").strip()
         if not raw_name:
             continue
-        sanitized = safe_filename(raw_name)
-        if sanitized in seen_names and seen_names[sanitized] != raw_name:
-            log(f"ERROR: playlist names '{seen_names[sanitized]}' and '{raw_name}' both "
-                f"sanitize to '{sanitized}' and would share a folder. Rename one in "
+        # casefold(), not just the raw sanitized string, because NTFS and
+        # macOS's default filesystem are both case-insensitive - "Foo" and
+        # "foo" would otherwise pass this check but collide on disk anyway.
+        key = safe_filename(raw_name).casefold()
+        if key in seen_names and seen_names[key] != raw_name:
+            log(f"ERROR: playlist names '{seen_names[key]}' and '{raw_name}' both "
+                f"resolve to the same folder/file on disk. Rename one in "
                 f"{CONFIG_FILE.name}.")
             sys.exit(1)
-        seen_names[sanitized] = raw_name
+        seen_names[key] = raw_name
 
     if not dry_run:
         staging_path.mkdir(parents=True, exist_ok=True)
