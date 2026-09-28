@@ -15,6 +15,24 @@ phone, or another folder.
 
 ______________________________________________________________________
 
+## Download
+
+<div align="center">
+
+### [**⬇ DOWNLOAD EVERYTHING (ZIP)**](https://github.com/alvinlam100-glitch/tidal-download-local-usb-mp3-sync/archive/refs/heads/master.zip)
+
+One file, one click. It contains every script this tool needs
+(`setup`, `sync_all`, `fix_track`, and the rest) plus this README, already
+organized in one folder. No separate downloads, no picking individual
+files.
+
+</div>
+
+The link above saves a `.zip` file to the Downloads folder. Extract it
+anywhere, then continue at [Installation](#installation) below.
+
+______________________________________________________________________
+
 ## Design rationale
 
 Tidal access is read-only. The tool never downloads audio from Tidal and
@@ -41,8 +59,8 @@ downloaded on a guess.
 
 No prior coding experience is required. The procedure:
 
-1. On this repository's GitHub page, click **Code** and select **Download
-   ZIP**, then extract it. No `git` knowledge is required.
+1. Use the [Download](#download) link above and extract the `.zip`. No
+   `git` knowledge is required.
 2. Install [Python](https://www.python.org/downloads/) if it is not already
    present. The installer has a checkbox on its first screen labeled
    **"Add python.exe to PATH."** This must be checked, or the remaining
