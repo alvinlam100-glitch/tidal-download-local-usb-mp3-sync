@@ -23,9 +23,8 @@ ______________________________________________________________________
 
 </div>
 
-The link above downloads a single `.zip` file containing all required
-files: every script, the setup and sync entry points, and this README.
-Extract it, then continue at [Installation](#installation).
+The link above downloads a single archive containing the full contents of
+this repository. Extract it, then proceed to [Installation](#installation).
 
 ______________________________________________________________________
 
