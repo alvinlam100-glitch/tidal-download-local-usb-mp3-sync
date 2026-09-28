@@ -112,6 +112,20 @@ def safe_filename(name: str) -> str:
     return cleaned
 
 
+_TIDAL_TRACK_COUNT_RE = re.compile(r'^#\s*tidal_track_count:\s*(\d+)\s*$')
+
+
+def tidal_track_count_marker(resolved_text: str) -> int | None:
+    """Reads the "# tidal_track_count: N" marker tidal_resolve.py writes at
+    the top of resolved/<playlist>.txt - the real Tidal-side track count,
+    as opposed to how many of them actually resolved to a YouTube match.
+    Returns None if the marker is missing (an older or hand-written file),
+    in which case an empty file should NOT be trusted as "genuinely empty"."""
+    first_line = resolved_text.splitlines()[0] if resolved_text.splitlines() else ""
+    m = _TIDAL_TRACK_COUNT_RE.match(first_line.strip())
+    return int(m.group(1)) if m else None
+
+
 OUTPUT_TEMPLATE = "%(id)s - %(uploader)s - %(title)s.%(ext)s"
 # The raw name yt-dlp writes on first download: "<id> - Uploader - Title.ext".
 # Only used to spot a freshly-downloaded file by its leading ID - the
@@ -555,22 +569,33 @@ def _run() -> None:
         if not url_file.exists():
             log(f"SKIPPING '{name}': no resolved tracks yet. Run tidal_resolve.py first.")
             continue
+        resolved_text = url_file.read_text(encoding="utf-8")
+        has_urls = any(
+            line.strip() and not line.strip().startswith("#")
+            for line in resolved_text.splitlines()
+        )
         playlist_root = staging_path / safe_filename(name)
-        # An empty (but existing) resolved file is a real signal from
-        # tidal_resolve.py, not "hasn't been run yet" - it means the Tidal
-        # playlist genuinely has zero tracks right now. Still worth
-        # reconciling any existing local files down to zero via
-        # reorganize_playlist_files() below (its mass-deletion circuit
-        # breaker still protects against this being a resolution failure
-        # rather than a real empty playlist), just skip the download step
-        # since there's nothing to download.
-        if url_file.read_text(encoding="utf-8").strip():
+        if has_urls:
             if sync_playlist(url_file, name, playlist_root, audio_format, dry_run=dry_run):
                 successes += 1
             else:
                 had_failure = True
         else:
-            successes += 1
+            # Zero resolved URLs is ambiguous by itself - it's written both
+            # when the Tidal playlist genuinely has zero tracks AND when it
+            # has tracks but every one failed to resolve this run. Only the
+            # first case is safe to reconcile to an empty local folder; the
+            # "# tidal_track_count" marker (absent in an older/hand-written
+            # file - treated the same as "tracks exist" to be safe) is what
+            # tells them apart.
+            tidal_count = tidal_track_count_marker(resolved_text)
+            if tidal_count == 0:
+                successes += 1
+            else:
+                log(f"SKIPPING '{name}': resolved to zero tracks, but the Tidal playlist isn't "
+                    f"confirmed empty - leaving existing files untouched rather than risk "
+                    f"deleting tracks that just failed to resolve. Check the resolve output.")
+                continue
         reorganize_playlist_files(url_file, playlist_root, name, dry_run=dry_run)
 
     log(f"Download step done: {successes}/{len(playlists)} playlists synced.")

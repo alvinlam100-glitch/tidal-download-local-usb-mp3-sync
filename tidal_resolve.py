@@ -436,7 +436,13 @@ def resolve_one_playlist(tidal_session, yt: "YTMusic", tidal_name: str, local_na
 
     RESOLVED_DIR.mkdir(exist_ok=True)
     out_file = RESOLVED_DIR / f"{safe_filename(local_name)}.txt"
-    atomic_write_text(out_file, "\n".join(resolved_urls) + "\n" if resolved_urls else "")
+    # The leading "#" line is a marker sync_playlists.py reads to tell a
+    # genuinely empty Tidal playlist (tidal_track_count: 0) apart from one
+    # that has tracks but none resolved this run - yt-dlp's own batch-file
+    # format (-a) already ignores "#"-prefixed lines, so this doesn't
+    # affect downloading at all.
+    marker = f"# tidal_track_count: {len(tidal_tracks)}\n"
+    atomic_write_text(out_file, marker + ("\n".join(resolved_urls) + "\n" if resolved_urls else ""))
 
     print(f"  Matched {len(resolved_urls)}/{len(tidal_tracks)} tracks -> {out_file.name}")
 
