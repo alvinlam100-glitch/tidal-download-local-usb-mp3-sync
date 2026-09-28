@@ -173,12 +173,12 @@ def title_variants(title: str) -> list:
     """Returns several normalized forms of a title - original, with
     brackets/feat-clauses stripped, and with a trailing ' - Subtitle'
     also stripped. Which stripping helps depends on which side of a
-    dash/bracket the actually-matching text sits on (e.g. YouTube's
-    '因為愛情 - Because Of Love' needs the suffix stripped to match a bare
-    Chinese title, but 'Sky (Edit)' vs '海闊天空 - Sky (Edit)' needs the
-    OPPOSITE - stripping the suffix there throws away the one part that
-    matches). Rather than guess which applies, comparison tries every
-    variant and keeps the best score."""
+    dash/bracket the actually-matching text sits on (e.g. a YouTube result
+    titled 'Native Title - English Title' needs the suffix stripped to
+    match a bare native-script title, but 'Song (Edit)' vs 'Other Title -
+    Song (Edit)' needs the OPPOSITE - stripping the suffix there throws
+    away the one part that matches). Rather than guess which applies,
+    comparison tries every variant and keeps the best score."""
     variants = {title.strip()}
     no_brackets = _BRACKETED_RE.sub('', title)
     no_brackets = _TRAILING_FEAT_RE.sub('', no_brackets).strip()
