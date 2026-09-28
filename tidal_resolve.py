@@ -388,14 +388,14 @@ def safe_filename(name: str) -> str:
     return cleaned or "unnamed"
 
 
-def resolve_one_playlist(tidal_session, yt: "YTMusic", tidal_name: str, local_name: str, cache: dict) -> None:
+def resolve_one_playlist(tidal_session, yt: "YTMusic", tidal_name: str, local_name: str, cache: dict) -> bool:
     print(f"\n--- {tidal_name} ---")
 
     tidal_playlist = find_tidal_playlist(tidal_session, tidal_name)
     if tidal_playlist is None:
         print(f"  Could not find a Tidal playlist named '{tidal_name}'. "
               f"Check the spelling in playlists.json against Tidal.")
-        return
+        return False
 
     tidal_tracks = tidal_playlist.tracks()
     print(f"  {len(tidal_tracks)} tracks on Tidal")
@@ -445,6 +445,8 @@ def resolve_one_playlist(tidal_session, yt: "YTMusic", tidal_name: str, local_na
         for t in unmatched:
             print(f"    - {t}")
 
+    return True
+
 
 def main() -> None:
     # Same reasoning as sync_playlists.py's lock: a second run started while
@@ -483,13 +485,21 @@ def _run() -> None:
     yt = YTMusic(requests_session=TimeoutSession())  # anonymous - no Google account needed, search-only
     cache = load_cache()
 
+    had_failure = False
     for entry in playlists:
         tidal_name = str(entry.get("tidal_name") or entry.get("name") or "").strip()
         local_name = str(entry.get("name") or tidal_name).strip()
         if not tidal_name:
             print(f"  Skipping invalid playlist entry in {CONFIG_FILE.name}: missing 'tidal_name'.")
+            had_failure = True
             continue
-        resolve_one_playlist(tidal_session, yt, tidal_name, local_name, cache)
+        if not resolve_one_playlist(tidal_session, yt, tidal_name, local_name, cache):
+            had_failure = True
+
+    if had_failure:
+        print("\nTidal resolve finished with errors above - sync_playlists.py may run on stale "
+              "or incomplete data. Fix the issue and re-run before syncing.")
+        sys.exit(1)
 
     print("\nTidal resolve done. Now run sync_playlists.py (or sync_all) to download and sync to USB.")
 

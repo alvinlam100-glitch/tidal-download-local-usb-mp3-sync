@@ -552,14 +552,25 @@ def _run() -> None:
             log(f"SKIPPING invalid playlist entry in {CONFIG_FILE.name}: missing 'name'.")
             continue
         url_file = RESOLVED_DIR / f"{safe_filename(name)}.txt"
-        if not url_file.exists() or not url_file.read_text(encoding="utf-8").strip():
+        if not url_file.exists():
             log(f"SKIPPING '{name}': no resolved tracks yet. Run tidal_resolve.py first.")
             continue
         playlist_root = staging_path / safe_filename(name)
-        if sync_playlist(url_file, name, playlist_root, audio_format, dry_run=dry_run):
-            successes += 1
+        # An empty (but existing) resolved file is a real signal from
+        # tidal_resolve.py, not "hasn't been run yet" - it means the Tidal
+        # playlist genuinely has zero tracks right now. Still worth
+        # reconciling any existing local files down to zero via
+        # reorganize_playlist_files() below (its mass-deletion circuit
+        # breaker still protects against this being a resolution failure
+        # rather than a real empty playlist), just skip the download step
+        # since there's nothing to download.
+        if url_file.read_text(encoding="utf-8").strip():
+            if sync_playlist(url_file, name, playlist_root, audio_format, dry_run=dry_run):
+                successes += 1
+            else:
+                had_failure = True
         else:
-            had_failure = True
+            successes += 1
         reorganize_playlist_files(url_file, playlist_root, name, dry_run=dry_run)
 
     log(f"Download step done: {successes}/{len(playlists)} playlists synced.")
