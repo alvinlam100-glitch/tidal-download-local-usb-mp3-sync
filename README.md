@@ -19,7 +19,7 @@ ______________________________________________________________________
 
 <div align="center">
 
-### [**Download**](https://github.com/alvinlam100-glitch/tidal-download-local-usb-mp3-sync/archive/refs/heads/master.zip)
+### [**Download**](https://github.com/alvinlam100-glitch/tidal-download-local-usb-mp3-sync/archive/refs/heads/main.zip)
 
 </div>
 
