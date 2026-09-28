@@ -366,16 +366,29 @@ def reorganize_playlist_files(url_file: Path, playlist_root: Path, name: str, dr
     index = load_track_index(playlist_root)
     renamed = clean_freshly_downloaded_files(playlist_root, index, dry_run=dry_run)
 
-    removed_ids = set()
-    for vid in list(index.keys()):
-        if vid not in desired_ids:
-            removed_ids.add(vid)
-            if dry_run:
-                continue
+    removed_ids = {vid for vid in index if vid not in desired_ids}
+
+    # Safety net: an upstream problem (a resolution failure, a bad/empty
+    # Tidal read) could make a playlist look like it lost most of its
+    # tracks even though nothing was actually removed on Tidal. Refuse to
+    # mass-delete in that case rather than trust the numbers blindly - a
+    # genuine mass removal can still be done by hand.
+    breaker_tripped = len(index) >= 5 and len(removed_ids) > len(index) * 0.5
+    if breaker_tripped:
+        log(f"  WARNING: '{name}' would lose {len(removed_ids)}/{len(index)} track(s) this run - "
+            f"that's unusually large, so nothing was deleted in case this is caused by a "
+            f"resolution failure rather than a real playlist edit. If this drop is genuinely "
+            f"intentional, delete the affected files and {INDEX_FILENAME} in {playlist_root} "
+            f"yourself, or re-run once you've confirmed it.")
+        removed_ids = set()
+
+    if not dry_run and not breaker_tripped:
+        for vid in removed_ids:
             f = playlist_root / index[vid]
             if f.exists():
                 f.unlink()
             del index[vid]
+
     if removed_ids:
         prefix = "[DRY RUN] Would remove" if dry_run else "Removed"
         log(f"  {prefix} {len(removed_ids)} track(s) from '{name}' no longer in the Tidal playlist")
@@ -532,6 +545,7 @@ def _run() -> None:
     log(f"Audio format: {audio_format}")
 
     successes = 0
+    had_failure = False
     for playlist in playlists:
         name = str(playlist.get("name") or playlist.get("tidal_name") or "").strip()
         if not name:
@@ -544,19 +558,27 @@ def _run() -> None:
         playlist_root = staging_path / safe_filename(name)
         if sync_playlist(url_file, name, playlist_root, audio_format, dry_run=dry_run):
             successes += 1
+        else:
+            had_failure = True
         reorganize_playlist_files(url_file, playlist_root, name, dry_run=dry_run)
 
     log(f"Download step done: {successes}/{len(playlists)} playlists synced.")
 
     if usb_drive_path_raw:
-        mirror_to_usb(staging_path, Path(usb_drive_path_raw).expanduser(), dry_run=dry_run)
+        if not mirror_to_usb(staging_path, Path(usb_drive_path_raw).expanduser(), dry_run=dry_run):
+            had_failure = True
     else:
         log(f"No usb_drive_path configured - your library lives in {staging_path},")
         log("skipping the mirror step. Set usb_drive_path in playlists.json to also")
         log("copy it to a USB stick, MP3 player, or any other folder.")
 
-    log("All done.")
+    log("All done." if not had_failure else "Done, but with errors above - see the warnings.")
     log("=" * 60)
+    if had_failure:
+        # A scheduled/automated run needs a nonzero exit code to actually
+        # notice a failure - without this, a failed download or a missed
+        # USB mirror still exits 0 and looks identical to success.
+        sys.exit(1)
 
 
 if __name__ == "__main__":

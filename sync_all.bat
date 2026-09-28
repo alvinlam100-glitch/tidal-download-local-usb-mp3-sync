@@ -12,6 +12,12 @@ if errorlevel 1 (
 echo.
 echo Step 2/2: downloading from YouTube, then mirroring if configured...
 python sync_playlists.py
+if errorlevel 1 (
+    echo.
+    echo Sync step reported an error - check the output above and sync_log.txt.
+    pause
+    exit /b 1
+)
 echo.
 echo All done. Press any key to close this window.
 pause >nul

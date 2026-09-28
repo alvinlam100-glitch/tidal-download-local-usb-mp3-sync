@@ -5,4 +5,4 @@ echo "Step 1/2: resolving Tidal playlists to YouTube tracks..."
 python3 tidal_resolve.py || { echo "Tidal resolve step failed, stopping before touching your library."; exit 1; }
 echo ""
 echo "Step 2/2: downloading from YouTube, then mirroring if configured..."
-python3 sync_playlists.py
+python3 sync_playlists.py || { echo "Sync step reported an error - check the output above and sync_log.txt."; exit 1; }
