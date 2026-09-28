@@ -1,0 +1,21 @@
+# Personal config and credentials - never commit these
+playlists.json
+tidal_token.json
+
+# Generated/cache data - personal, regenerable, and can be large
+resolve_cache.json
+resolve_cache.json.bak*
+resolved/
+MusicLibrary/
+*.log
+sync_log.txt
+
+# Per-playlist runtime state (lives inside MusicLibrary/, covered above, but
+# listed explicitly in case staging_path is ever pointed elsewhere)
+.track_index.json
+.ytdlp_archive.txt
+*.info.json
+
+# Python
+__pycache__/
+*.pyc

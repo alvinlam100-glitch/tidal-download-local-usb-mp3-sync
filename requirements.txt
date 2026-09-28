@@ -1,0 +1,4 @@
+tidalapi>=0.8.0
+requests>=2.31.0
+ytmusicapi>=1.7.0
+yt-dlp>=2024.1.0

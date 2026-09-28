@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy this file to playlists.json and edit it. staging_path is a folder on your computer where the master copy of your library lives - it's always fully synced there regardless of anything below. usb_drive_path is where that library additionally gets mirrored: a USB stick, an MP3 player, any folder. Update it if a drive letter changes. Leave it as an empty string to skip mirroring entirely and just keep the library local.",
+
+  "staging_path": "./MusicLibrary",
+  "usb_drive_path": "E:/Music",
+
+  "codec": "mp3",
+  "_codec_note": "Audio format yt-dlp extracts to. 'mp3' is the safest, most widely-compatible default for car head units and MP3 players. 'vorbis' (ogg) also works if you prefer smaller files and your target device supports it.",
+
+  "_playlists_note": "tidal_name must match the exact playlist name as it appears in your Tidal account. name is used as the local folder name for that playlist's songs. Order matters here - playlists are resolved/downloaded top to bottom, so the most-wanted ones are listed first.",
+  "playlists": [
+    { "tidal_name": "My Playlist One", "name": "playlist-one" },
+    { "tidal_name": "My Playlist Two", "name": "playlist-two" }
+  ]
+}
