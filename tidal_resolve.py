@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -96,7 +97,13 @@ def load_cache() -> dict:
 
 
 def save_cache(cache: dict) -> None:
-    CACHE_FILE.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Written to a temp file and swapped in with os.replace() (atomic on both
+    # Windows and POSIX) rather than writing the real file directly - this is
+    # called after every single track, so a crash/interruption mid-write could
+    # otherwise leave resolve_cache.json truncated and unreadable next run.
+    tmp_file = CACHE_FILE.with_suffix(".json.tmp")
+    tmp_file.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp_file, CACHE_FILE)
 
 
 def cache_key(isrc: str | None, title: str, artist: str) -> str:
@@ -136,8 +143,16 @@ def tidal_login() -> "tidalapi.Session":
             if session.check_login():
                 print("Logged into Tidal using saved session.")
                 return session
-        except Exception:
-            pass  # fall through to a fresh login
+        except (json.JSONDecodeError, KeyError, OSError, ValueError) as e:
+            # Expected failure modes for a malformed/incomplete token file -
+            # fall through to a fresh login same as before, but say why
+            # instead of failing silently.
+            print(f"Saved Tidal session couldn't be reused ({e}); logging in fresh.")
+        except Exception as e:
+            # Anything else (a real bug, an unexpected tidalapi/network error)
+            # shouldn't look identical to "the token just expired" - still
+            # falls through to a fresh login, but this one is worth noticing.
+            print(f"Unexpected error reusing saved Tidal session ({e}); logging in fresh.")
 
     print("Opening a Tidal login link, please open it and approve access:", flush=True)
     try:

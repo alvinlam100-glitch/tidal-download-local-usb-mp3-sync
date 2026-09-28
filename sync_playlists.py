@@ -27,6 +27,7 @@ What it does each time you run it:
 
 Usage:
     python sync_playlists.py
+    python sync_playlists.py --dry-run   (report what would happen, change nothing)
 
 Edit playlists.json to add/remove playlists or change where things are saved.
 """
@@ -34,6 +35,7 @@ Edit playlists.json to add/remove playlists or change where things are saved.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import re
 import shutil
@@ -112,8 +114,9 @@ def video_id_from_url(url: str) -> str | None:
     return parse_qs(parsed.query).get("v", [None])[0]
 
 
-def sync_playlist(url_file: Path, name: str, root_path: Path, audio_format: str) -> bool:
-    root_path.mkdir(parents=True, exist_ok=True)
+def sync_playlist(url_file: Path, name: str, root_path: Path, audio_format: str, dry_run: bool = False) -> bool:
+    if not dry_run:
+        root_path.mkdir(parents=True, exist_ok=True)
     archive_file = root_path / ".ytdlp_archive.txt"
 
     cmd = [
@@ -136,8 +139,14 @@ def sync_playlist(url_file: Path, name: str, root_path: Path, audio_format: str)
         "-o", str(root_path / OUTPUT_TEMPLATE),
         "-a", str(url_file),
     ]
+    if dry_run:
+        # yt-dlp's own no-op mode: reports what it would fetch (respecting
+        # the download-archive, so already-downloaded tracks are still
+        # skipped in the report) without downloading, converting, or
+        # writing anything to disk.
+        cmd.append("--simulate")
 
-    log(f"Syncing playlist: {name}")
+    log(f"{'[DRY RUN] ' if dry_run else ''}Syncing playlist: {name}")
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -175,12 +184,15 @@ def load_track_index(playlist_root: Path) -> dict:
 
 
 def save_track_index(playlist_root: Path, index: dict) -> None:
-    (playlist_root / INDEX_FILENAME).write_text(
-        json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    # Atomic write (temp file + os.replace) so an interruption mid-write can't
+    # leave this file truncated - it's rewritten on every sync.
+    idx_file = playlist_root / INDEX_FILENAME
+    tmp_file = idx_file.with_suffix(".json.tmp")
+    tmp_file.write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp_file, idx_file)
 
 
-def clean_freshly_downloaded_files(playlist_root: Path, index: dict) -> int:
+def clean_freshly_downloaded_files(playlist_root: Path, index: dict, dry_run: bool = False) -> int:
     """Renames any freshly-downloaded file (still in yt-dlp's raw
     "<id> - Uploader - Title.ext" naming) to a clean "Song - Artist.ext"
     with no video ID visible, using its .info.json sidecar for the exact
@@ -214,7 +226,8 @@ def clean_freshly_downloaded_files(playlist_root: Path, index: dict) -> int:
             continue
         vid = info.get("id")
         if not vid or not isinstance(vid, str) or vid in index:
-            info_file.unlink(missing_ok=True)
+            if not dry_run:
+                info_file.unlink(missing_ok=True)
             continue
 
         # yt-dlp leaves behind .part/.ytdl/.temp files while a download is
@@ -241,9 +254,12 @@ def clean_freshly_downloaded_files(playlist_root: Path, index: dict) -> int:
             desired_name = f"{title} - {artist} ({n}){audio_file.suffix}"
             n += 1
 
-        audio_file.rename(playlist_root / desired_name)
-        index[vid] = desired_name
-        info_file.unlink(missing_ok=True)
+        if dry_run:
+            log(f"  [DRY RUN] would rename to: {desired_name}")
+        else:
+            audio_file.rename(playlist_root / desired_name)
+            index[vid] = desired_name
+            info_file.unlink(missing_ok=True)
         renamed += 1
 
     # Fallback for files downloaded before this script wrote .info.json
@@ -275,14 +291,17 @@ def clean_freshly_downloaded_files(playlist_root: Path, index: dict) -> int:
         while (playlist_root / desired_name).exists() and (playlist_root / desired_name) != f:
             desired_name = f"{title} - {artist} ({n}){f.suffix}"
             n += 1
-        f.rename(playlist_root / desired_name)
-        index[vid] = desired_name
+        if dry_run:
+            log(f"  [DRY RUN] would rename to: {desired_name}")
+        else:
+            f.rename(playlist_root / desired_name)
+            index[vid] = desired_name
         renamed += 1
 
     return renamed
 
 
-def reorganize_playlist_files(url_file: Path, playlist_root: Path, name: str) -> None:
+def reorganize_playlist_files(url_file: Path, playlist_root: Path, name: str, dry_run: bool = False) -> None:
     """Deletes any file whose track is no longer in
     resolved/<playlist>.txt (i.e. a song removed from that Tidal
     playlist), and renames freshly-downloaded files to a clean
@@ -305,39 +324,45 @@ def reorganize_playlist_files(url_file: Path, playlist_root: Path, name: str) ->
             desired_ids.add(vid)
 
     index = load_track_index(playlist_root)
-    renamed = clean_freshly_downloaded_files(playlist_root, index)
+    renamed = clean_freshly_downloaded_files(playlist_root, index, dry_run=dry_run)
 
     removed_ids = set()
     for vid in list(index.keys()):
         if vid not in desired_ids:
+            removed_ids.add(vid)
+            if dry_run:
+                continue
             f = playlist_root / index[vid]
             if f.exists():
                 f.unlink()
-            removed_ids.add(vid)
             del index[vid]
     if removed_ids:
-        log(f"  Removed {len(removed_ids)} track(s) from '{name}' no longer in the Tidal playlist")
-        # Also drop these from yt-dlp's own download-archive - otherwise if
-        # the same track is ever re-added to the playlist later, yt-dlp
-        # would see its video ID already marked "downloaded" and silently
-        # skip it forever, even though the file was just deleted.
-        archive_file = playlist_root / ".ytdlp_archive.txt"
-        if archive_file.exists():
-            lines = archive_file.read_text(encoding="utf-8").splitlines()
-            kept = []
-            for line in lines:
-                parts = line.strip().split()
-                if len(parts) == 2 and parts[1] in removed_ids:
-                    continue  # this line's video ID was just removed, drop it
-                kept.append(line)
-            archive_file.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        prefix = "[DRY RUN] Would remove" if dry_run else "Removed"
+        log(f"  {prefix} {len(removed_ids)} track(s) from '{name}' no longer in the Tidal playlist")
+        if not dry_run:
+            # Also drop these from yt-dlp's own download-archive - otherwise if
+            # the same track is ever re-added to the playlist later, yt-dlp
+            # would see its video ID already marked "downloaded" and silently
+            # skip it forever, even though the file was just deleted.
+            archive_file = playlist_root / ".ytdlp_archive.txt"
+            if archive_file.exists():
+                lines = archive_file.read_text(encoding="utf-8").splitlines()
+                kept = []
+                for line in lines:
+                    parts = line.strip().split()
+                    if len(parts) == 2 and parts[1] in removed_ids:
+                        continue  # this line's video ID was just removed, drop it
+                    kept.append(line)
+                archive_file.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
 
-    save_track_index(playlist_root, index)
+    if not dry_run:
+        save_track_index(playlist_root, index)
     if renamed:
-        log(f"  Cleaned up {renamed} filename(s) in '{name}'")
+        prefix = "[DRY RUN] Would clean up" if dry_run else "Cleaned up"
+        log(f"  {prefix} {renamed} filename(s) in '{name}'")
 
 
-def mirror_to_usb(staging_path: Path, usb_path: Path) -> bool:
+def mirror_to_usb(staging_path: Path, usb_path: Path, dry_run: bool = False) -> bool:
     """Mirror staging_path onto usb_path (copies new files, removes files
     on the USB that no longer exist in staging)."""
 
@@ -346,23 +371,29 @@ def mirror_to_usb(staging_path: Path, usb_path: Path) -> bool:
             f"and is the path/drive letter in playlists.json correct?")
         return False
 
-    log(f"Mirroring {staging_path} -> {usb_path}")
+    log(f"{'[DRY RUN] ' if dry_run else ''}Mirroring {staging_path} -> {usb_path}")
 
     system = platform.system()
     try:
         if system == "Windows":
             # /MIR mirrors the tree (adds new, removes stale). Exit codes
-            # 0-7 from robocopy mean success; 8+ means a real error.
+            # 0-7 from robocopy mean success; 8+ means a real error. /L is
+            # robocopy's own list-only mode for a dry run - reports what
+            # would change without touching anything.
+            cmd = ["robocopy", str(staging_path), str(usb_path), "/MIR", "/NFL", "/NDL"]
+            if dry_run:
+                cmd.append("/L")
             result = subprocess.run(
-                ["robocopy", str(staging_path), str(usb_path), "/MIR", "/NFL", "/NDL"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
             )
             ok = result.returncode < 8
         else:
-            # macOS / Linux
+            # macOS / Linux. --dry-run is rsync's own no-op mode.
+            cmd = ["rsync", "-a", "--delete", f"{staging_path}/", f"{usb_path}/"]
+            if dry_run:
+                cmd.append("--dry-run")
             result = subprocess.run(
-                ["rsync", "-a", "--delete", f"{staging_path}/", f"{usb_path}/"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
             )
             ok = result.returncode == 0
 
@@ -382,6 +413,7 @@ def mirror_to_usb(staging_path: Path, usb_path: Path) -> bool:
 
 
 def main() -> None:
+    dry_run = "--dry-run" in sys.argv[1:]
     check_ytdlp_installed()
     config = load_config()
 
@@ -406,6 +438,8 @@ def main() -> None:
     staging_path.mkdir(parents=True, exist_ok=True)
 
     log("=" * 60)
+    if dry_run:
+        log("DRY RUN - no files will be downloaded, deleted, renamed, or mirrored")
     log(f"Starting sync of {len(playlists)} playlist(s)")
     log(f"Staging folder: {staging_path}")
     log(f"Audio format: {audio_format}")
@@ -421,14 +455,14 @@ def main() -> None:
             log(f"SKIPPING '{name}': no resolved tracks yet. Run tidal_resolve.py first.")
             continue
         playlist_root = staging_path / safe_filename(name)
-        if sync_playlist(url_file, name, playlist_root, audio_format):
+        if sync_playlist(url_file, name, playlist_root, audio_format, dry_run=dry_run):
             successes += 1
-        reorganize_playlist_files(url_file, playlist_root, name)
+        reorganize_playlist_files(url_file, playlist_root, name, dry_run=dry_run)
 
     log(f"Download step done: {successes}/{len(playlists)} playlists synced.")
 
     if usb_drive_path_raw:
-        mirror_to_usb(staging_path, Path(usb_drive_path_raw).expanduser())
+        mirror_to_usb(staging_path, Path(usb_drive_path_raw).expanduser(), dry_run=dry_run)
     else:
         log(f"No usb_drive_path configured - your library lives in {staging_path},")
         log("skipping the mirror step. Set usb_drive_path in playlists.json to also")
