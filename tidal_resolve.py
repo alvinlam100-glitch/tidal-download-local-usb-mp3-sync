@@ -101,9 +101,15 @@ def save_cache(cache: dict) -> None:
     # Windows and POSIX) rather than writing the real file directly - this is
     # called after every single track, so a crash/interruption mid-write could
     # otherwise leave resolve_cache.json truncated and unreadable next run.
-    tmp_file = CACHE_FILE.with_suffix(".json.tmp")
-    tmp_file.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp_file, CACHE_FILE)
+    # The PID is in the temp name so two concurrent runs can't clobber each
+    # other's in-progress write; the finally block cleans it up even if
+    # os.replace() itself fails partway (e.g. the destination is locked).
+    tmp_file = CACHE_FILE.with_suffix(f".json.{os.getpid()}.tmp")
+    try:
+        tmp_file.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp_file, CACHE_FILE)
+    finally:
+        tmp_file.unlink(missing_ok=True)
 
 
 def cache_key(isrc: str | None, title: str, artist: str) -> str:

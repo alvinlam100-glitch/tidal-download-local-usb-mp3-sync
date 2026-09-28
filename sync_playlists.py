@@ -92,7 +92,12 @@ def check_ytdlp_installed() -> None:
 
 def safe_filename(name: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*]', "_", str(name or "")).strip()
-    return cleaned or "unnamed"
+    if cleaned in ("", ".", ".."):
+        # A bare "." or ".." would make playlist_root resolve to the
+        # staging folder itself or its parent - the delete/mirror logic
+        # would then act on the wrong directory entirely.
+        return "unnamed"
+    return cleaned
 
 
 OUTPUT_TEMPLATE = "%(id)s - %(uploader)s - %(title)s.%(ext)s"
@@ -109,9 +114,22 @@ RAW_ID_RE = re.compile(r'^([A-Za-z0-9_-]{11}) - ')
 INDEX_FILENAME = ".track_index.json"
 
 
+_VIDEO_ID_RE = re.compile(r'^[A-Za-z0-9_-]{11}$')
+
+
 def video_id_from_url(url: str) -> str | None:
+    """Accepts a youtube.com/watch?v=... URL (what tidal_resolve.py always
+    writes) or a youtu.be/... short link (in case resolved/*.txt was ever
+    hand-edited) - matches the URL forms fix_track.py itself accepts."""
     parsed = urlparse(url)
-    return parse_qs(parsed.query).get("v", [None])[0]
+    vid = parse_qs(parsed.query).get("v", [None])[0]
+    if vid and _VIDEO_ID_RE.match(vid):
+        return vid
+    if "youtu.be" in parsed.netloc:
+        candidate = parsed.path.strip("/")
+        if _VIDEO_ID_RE.match(candidate):
+            return candidate
+    return None
 
 
 def sync_playlist(url_file: Path, name: str, root_path: Path, audio_format: str, dry_run: bool = False) -> bool:
@@ -185,11 +203,16 @@ def load_track_index(playlist_root: Path) -> dict:
 
 def save_track_index(playlist_root: Path, index: dict) -> None:
     # Atomic write (temp file + os.replace) so an interruption mid-write can't
-    # leave this file truncated - it's rewritten on every sync.
+    # leave this file truncated - it's rewritten on every sync. PID in the
+    # temp name avoids two concurrent runs clobbering each other's write;
+    # finally cleans up the temp file even if os.replace() itself fails.
     idx_file = playlist_root / INDEX_FILENAME
-    tmp_file = idx_file.with_suffix(".json.tmp")
-    tmp_file.write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp_file, idx_file)
+    tmp_file = idx_file.with_suffix(f".json.{os.getpid()}.tmp")
+    try:
+        tmp_file.write_text(json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp_file, idx_file)
+    finally:
+        tmp_file.unlink(missing_ok=True)
 
 
 def clean_freshly_downloaded_files(playlist_root: Path, index: dict, dry_run: bool = False) -> int:
@@ -435,7 +458,8 @@ def main() -> None:
         log("No playlists configured in playlists.json. Nothing to do.")
         return
 
-    staging_path.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        staging_path.mkdir(parents=True, exist_ok=True)
 
     log("=" * 60)
     if dry_run:
