@@ -19,7 +19,7 @@ Usage:
     python fix_track.py                    (interactive - asks for both)
 
 Example:
-    python fix_track.py seoul crash
+    python fix_track.py workout "song title"
 
 After running this, do a normal sync (sync_all.bat / sync_all.sh) to
 download the corrected track - any old wrong file is removed

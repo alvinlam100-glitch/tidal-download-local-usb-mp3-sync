@@ -99,7 +99,7 @@ OUTPUT_TEMPLATE = "%(id)s - %(uploader)s - %(title)s.%(ext)s"
 # actual artist/title used for renaming comes from the .info.json
 # sidecar (see below), not by parsing this string, since either field
 # can itself legitimately contain " - " (e.g. YouTube's own
-# "Aaron Smith - Topic" auto-channel naming).
+# "Some Artist - Topic" auto-channel naming).
 RAW_ID_RE = re.compile(r'^([A-Za-z0-9_-]{11}) - ')
 # Per-playlist sidecar mapping video_id -> current filename, so deletion-
 # sync keeps working reliably once the ID is gone from the visible
@@ -186,7 +186,7 @@ def clean_freshly_downloaded_files(playlist_root: Path, index: dict) -> int:
     with no video ID visible, using its .info.json sidecar for the exact
     artist/title fields - reading structured JSON instead of trying to
     regex-split "Uploader - Title" apart, which breaks when either field
-    contains its own " - " (e.g. YouTube's "Aaron Smith - Topic" auto-
+    contains its own " - " (e.g. YouTube's "Some Artist - Topic" auto-
     channel naming). Matches each info.json to its audio file by the
     "id" field inside the JSON, not by filename pattern-matching, so the
     exact on-disk naming convention yt-dlp uses for the sidecar doesn't

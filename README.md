@@ -45,7 +45,7 @@ downloaded on a guess.
 | Script | Function |
 |---|---|
 | `tidal_resolve.py` | Logs into Tidal (read-only), reads each playlist listed in `playlists.json`, and searches YouTube Music for each track via `ytmusicapi`. Candidates are scored on duration and title/artist similarity; matches below threshold are rejected rather than guessed. Output is written to `resolved/<playlist name>.txt`. |
-| `sync_playlists.py` | Downloads the tracks listed in each `resolved/*.txt` file via `yt-dlp`, renames them to `Song - Artist.mp3` with no video ID present, removes files for tracks no longer in the playlist, and maintains the result in a local `MusicLibrary/` folder. If a mirror target is configured, the library is also copied there. |
+| `sync_playlists.py` | Downloads the tracks listed in each `resolved/*.txt` file via `yt-dlp`, renames them to `Song - Artist.mp3` (e.g. `Delulu - KiiiKiii.mp3`) with no video ID present, removes files for tracks no longer in the playlist, and maintains the result in a local `MusicLibrary/` folder. If a mirror target is configured, the library is also copied there. |
 | `sync_all.bat` / `sync_all.sh` | Runs both steps in sequence. This is the entry point for routine use. |
 | `setup.bat` / `setup.sh` | One-time setup. Checks for FFmpeg and Deno and offers to install them if missing, installs Python dependencies, and builds `playlists.json` interactively. |
 | `fix_track.bat` / `fix_track.sh` | Corrects a track that matched incorrectly or did not match at all. See [Fixing a wrong or missing match](#fixing-a-wrong-or-missing-match). |
@@ -156,7 +156,7 @@ fix_track.bat
 ```
 
 The script prompts for the playlist and search term, or accepts them as
-arguments directly: `python fix_track.py seoul "song name"`. It looks the
+arguments directly: `python fix_track.py workout "song name"`. It looks the
 track up against the Tidal playlist itself, not the downloaded files, so
 unmatched tracks are found as well. It reports the current status and
 accepts a replacement YouTube link. Before accepting a replacement, it

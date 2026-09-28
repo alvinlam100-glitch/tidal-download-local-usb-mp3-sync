@@ -200,9 +200,8 @@ def best_title_similarity(a: str, b: str) -> float:
 
 # Generic words that describe the *category* of a bracketed tag but don't
 # identify a specific version - stripped before comparing, so what's left
-# is the actual distinguishing name/descriptor (e.g. "Krono" out of
-# "Krono Remix", or "Accapella" out of "JJ Flores & Steve Smooth
-# Accapella").
+# is the actual distinguishing name/descriptor (e.g. "Nova" out of
+# "Nova Remix", or "Acapella" out of "DJ Someone Acapella").
 _GENERIC_VERSION_WORDS = {
     "feat", "ft", "remix", "mix", "edit", "version", "radio", "extended",
     "original", "the", "and", "with", "of", "vs", "a",
@@ -211,7 +210,7 @@ _GENERIC_VERSION_WORDS = {
 
 def version_tags(title: str) -> set:
     """Extracts the significant/identifying words found inside this
-    title's brackets - e.g. {'krono'} from 'Dancin (Krono Remix)'. Used
+    title's brackets - e.g. {'nova'} from 'Song Title (Nova Remix)'. Used
     to catch a specific failure mode that plain text-similarity misses:
     two titles that reduce to the same bare song name after stripping
     brackets (needed to match benign subtitles/credits) can still be
@@ -226,8 +225,8 @@ def version_tags(title: str) -> set:
 
 def has_version_conflict(target_title: str, candidate_title: str) -> bool:
     """True if both titles name a specific version/remix/edit and those
-    names don't overlap at all - e.g. target wants 'Krono Remix' and the
-    candidate is a 'JJ Flores & Steve Smooth Accapella'. Duration alone
+    names don't overlap at all - e.g. target wants 'Nova Remix' and the
+    candidate is a 'DJ Someone Acapella'. Duration alone
     can miss this if the two versions happen to run a similar length."""
     target_tags = version_tags(target_title)
     candidate_tags = version_tags(candidate_title)
@@ -309,7 +308,7 @@ def yt_search_best_match(yt: "YTMusic", title: str, artist: str, target_duration
             continue  # title text is too different to trust regardless of duration
 
         if has_version_conflict(title, raw_title):
-            continue  # e.g. target wants "Krono Remix", this is a named
+            continue  # e.g. target wants "Nova Remix", this is a named
             # different remix/acapella/edit - stripping brackets to match
             # the bare song name made them look similar, but they're not
 
@@ -417,7 +416,7 @@ def resolve_one_playlist(tidal_session, yt: "YTMusic", tidal_name: str, local_na
     print(f"  Matched {len(resolved_urls)}/{len(tidal_tracks)} tracks -> {out_file.name}")
 
     if unmatched:
-        print(f"  Could not match {len(unmatched)} track(s) with confidence:")
+        print(f"  {len(unmatched)} track(s) - 404 (New Era):")
         for t in unmatched:
             print(f"    - {t}")
 
