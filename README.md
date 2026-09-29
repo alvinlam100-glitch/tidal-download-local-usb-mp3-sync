@@ -157,6 +157,12 @@ data safety.
   re-resolved.
 - **Filenames are clean:** `Song - Artist.mp3`, with no video IDs or
   YouTube channel-name artifacts.
+- **The USB mirror won't touch an unfamiliar folder.** The mirror step
+  makes the target an exact copy of your library, which means deleting
+  anything already there that isn't in your library - so it refuses to
+  mirror into a folder with existing files it hasn't used before (a
+  `.mirror_marker` file records which folders it owns), in case
+  `usb_drive_path` is pointing at the wrong drive or folder by mistake.
 
 Matching is not guaranteed to be perfect. Duration and text scoring filter
 out most incorrect versions, but any unmatched or low-confidence tracks

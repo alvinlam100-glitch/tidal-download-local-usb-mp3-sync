@@ -434,6 +434,56 @@ def reorganize_playlist_files(
         log(f"  {prefix} {renamed} filename(s) in '{name}'")
 
 
+MIRROR_MARKER_FILENAME = ".mirror_marker"
+# Harmless OS-created clutter that can exist on a drive nobody has ever
+# pointed this tool at yet - ignored so a freshly formatted/used drive
+# isn't mistaken for "already has real content, refuse to touch it".
+_OS_JUNK_ENTRIES = {
+    "System Volume Information", "$RECYCLE.BIN", ".Trashes",
+    ".Spotlight-V100", ".fseventsd", "found.000",
+}
+
+
+def _check_mirror_target(staging_path: Path, usb_path: Path) -> str | None:
+    """Returns an error message if usb_path shouldn't be mirrored into,
+    or None if it's safe to proceed. /MIR and rsync --delete make the
+    target an exact copy of staging - anything already there that isn't
+    in staging gets deleted. A wrong drive letter or a typo'd path could
+    otherwise silently wipe a real, unrelated folder's contents. A small
+    marker file records which staging path a target belongs to, so a
+    target this tool has never used before (and that already has real
+    content) is refused rather than blindly trusted."""
+    marker_file = usb_path / MIRROR_MARKER_FILENAME
+    if marker_file.exists():
+        try:
+            stored = marker_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            stored = ""
+        if stored and stored != str(staging_path):
+            return (
+                f"'{usb_path}' is marked as the mirror target for a different staging "
+                f"path ('{stored}'), not '{staging_path}'. If you're sure this drive "
+                f"should now be used for this staging path, delete {marker_file} "
+                f"yourself first."
+            )
+        return None
+
+    real_entries = [
+        f for f in usb_path.iterdir()
+        if f.name not in _OS_JUNK_ENTRIES and f.name != MIRROR_MARKER_FILENAME
+    ]
+    if real_entries:
+        return (
+            f"'{usb_path}' already has files in it and has never been used as a "
+            f"mirror target by this tool before (no {MIRROR_MARKER_FILENAME} found). "
+            f"Refusing to mirror in case this is the wrong drive/path - mirroring "
+            f"would delete anything here not present in staging. If this really is "
+            f"the right target, empty it, or create {marker_file} yourself "
+            f"containing exactly: {staging_path}"
+        )
+    return None
+
+
 def mirror_to_usb(staging_path: Path, usb_path: Path, dry_run: bool = False) -> bool:
     """Mirror staging_path onto usb_path (copies new files, removes files
     on the USB that no longer exist in staging)."""
@@ -441,6 +491,11 @@ def mirror_to_usb(staging_path: Path, usb_path: Path, dry_run: bool = False) -> 
     if not usb_path.exists():
         log(f"ERROR: USB path '{usb_path}' was not found. Is the drive plugged in "
             f"and is the path/drive letter in playlists.json correct?")
+        return False
+
+    problem = _check_mirror_target(staging_path, usb_path)
+    if problem:
+        log(f"ERROR: refusing to mirror to {problem}")
         return False
 
     log(f"{'[DRY RUN] ' if dry_run else ''}Mirroring {staging_path} -> {usb_path}")
@@ -479,6 +534,11 @@ def mirror_to_usb(staging_path: Path, usb_path: Path, dry_run: bool = False) -> 
         log(f"ERROR: mirror tool not found ({e}). On Windows this needs 'robocopy' "
             f"(built into Windows). On Mac/Linux this needs 'rsync' installed.")
         return False
+
+    if not dry_run:
+        # Records that this target now belongs to this staging path, so
+        # future runs recognize it instead of refusing it as unfamiliar.
+        (usb_path / MIRROR_MARKER_FILENAME).write_text(str(staging_path), encoding="utf-8")
 
     log("  Mirror complete.")
     return True
